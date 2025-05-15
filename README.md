@@ -75,7 +75,6 @@ my-awesome-project/
 ├── README.md
 ├── pyproject.toml
 ├── .gitignore
-└── .pre-commit-config.yaml
 ```
 
 ## 🛠️ 开发者指南

@@ -1,278 +1,237 @@
 import argparse
-import sys
-from pathlib import Path
-from datetime import datetime
+from datetime import datetime  # Keep this for current_year
+import os
+import pathlib
+from jinja2 import Environment, FileSystemLoader
+import logging
 
 
-def create_directory_structure(project_name: str, project_path: Path) -> None:
-    """创建项目目录结构"""
-    # 创建主要目录
-    (project_path / "src" / project_name).mkdir(parents=True, exist_ok=True)
-    (project_path / "tests").mkdir(parents=True, exist_ok=True)
-    (project_path / "docs").mkdir(parents=True, exist_ok=True)
+def generate_project_from_template(
+    template_name: str, project_name: str, output_dir: str, context: dict
+):
+    """
+    Generates a project from a specified template.
+    """
+    logging.info(
+        f"Generating project '{project_name}' from template '{template_name}' in '{output_dir}'..."
+    )
 
-    # 创建基本文件
-    (project_path / "src" / project_name / "__init__.py").write_text(f'''"""
-{project_name} - 一个使用 create-uv-project 创建的项目
-"""
+    # Derive project_slug from project_name
+    project_slug = project_name.lower().replace(" ", "_").replace("-", "_")
+    current_year = datetime.now().year  # Calculate current_year here
+    full_context = {
+        "project_name": project_name,
+        "project_slug": project_slug,
+        "project_version": "0.1.0",
+        "current_year": current_year,  # Add current_year to the context for templates
+        **context,  # Merge with user-provided context
+    }
 
-__version__ = "0.1.0"
-''')
+    # Correctly locate the templates directory relative to this file
+    # Assuming app.py is in src/create_uv_project/app.py
+    # and templates are in /templates/
+    script_dir = pathlib.Path(__file__).parent.parent.parent
+    template_root_dir = script_dir / "templates"
+    specific_template_dir = template_root_dir / template_name
 
-    # 创建 main.py
-    (project_path / "src" / project_name / "main.py").write_text('''"""
-主程序入口
-"""
-import sys
+    if not specific_template_dir.is_dir():
+        logging.error(
+            f"Template '{template_name}' not found at '{specific_template_dir}'"
+        )
+        return
 
+    env = Environment(
+        loader=FileSystemLoader(str(specific_template_dir)), keep_trailing_newline=True
+    )
 
-def main():
-    """主函数"""
-    print("项目启动成功！")
-    return 0
+    target_project_path = pathlib.Path(output_dir) / project_slug
 
+    if target_project_path.exists():
+        logging.error(
+            f"Target directory '{target_project_path}' already exists. Please remove it or choose a different name/output directory."
+        )
+        # Optionally, add a --force flag to overwrite
+        # For now, we'll just exit.
+        # user_response = input(f"Directory {target_project_path} already exists. Overwrite? [y/N]: ")
+        # if user_response.lower() != 'y':
+        #     print("Aborted by user.")
+        #     return
+        # shutil.rmtree(target_project_path) # Be careful with this
+        return
 
-if __name__ == "__main__":
-    sys.exit(main())
-''')
+    # print(f"Creating project directory: {target_project_path}") # This is implicitly covered by dir creation logs or final success.
+    # We will create the root project directory later based on rendered template root names or project_slug
 
-    # 创建测试文件
-    (project_path / "tests" / "__init__.py").touch()
-    (project_path / "tests" / "test_main.py").write_text(f'''"""
-测试主程序功能
-"""
-import pytest
-from {project_name}.main import main
+    for root, dirs, files in os.walk(str(specific_template_dir)):
+        # Relative path from the specific_template_dir to the current root
+        relative_root = pathlib.Path(root).relative_to(specific_template_dir)
+        logging.debug(f"--- Walking new root ---")
+        logging.debug(f"Current root: {root}")
+        logging.debug(f"Dirs in current root: {dirs}")
+        logging.debug(f"Files in current root: {files}")
 
+        # Render directory names
+        rendered_relative_root_parts = []
+        for part in relative_root.parts:
+            try:
+                rendered_part = env.from_string(part).render(full_context)
+                rendered_relative_root_parts.append(rendered_part)
+            except Exception as e:
+                logging.warning(
+                    f"Could not render directory part '{part}': {e}. Using original name."
+                )
+                rendered_relative_root_parts.append(part)
 
-def test_main():
-    """测试主函数"""
-    assert main() == 0
-''')
+        current_target_dir_path = target_project_path
+        if rendered_relative_root_parts:  # if not the template root itself
+            current_target_dir_path = target_project_path.joinpath(
+                *rendered_relative_root_parts
+            )
 
-    # 创建 pyproject.toml
-    (project_path / "pyproject.toml").write_text(f'''[project]
-name = "{project_name}"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.8"
-license = "MIT"
-authors = [
-    {{ name = "Your Name", email = "your.email@example.com" }}
-]
-dependencies = []
+        for dir_name in dirs:
+            rendered_dir_name = env.from_string(dir_name).render(full_context)
+            target_dir_path = current_target_dir_path / rendered_dir_name
+            if not target_dir_path.exists():
+                logging.info(f"Creating directory: {target_dir_path}")
+                target_dir_path.mkdir(parents=True, exist_ok=True)
 
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-]
-dev = [
-    "black>=23.0",
-    "ruff>=0.0.290",
-]
+        for file_name in files:
+            # Skip .DS_Store and other unwanted files
+            if file_name == ".DS_Store":
+                continue
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+            logging.debug(f"----- Processing file_name: {file_name} -----")
+            if ".gitignore" in file_name:  # More specific debug for gitignore
+                logging.debug(
+                    f"Found a gitignore-related file: {file_name} in root {root}"
+                )
 
-[tool.uv]
-package = true
+            template_file_path = pathlib.Path(root) / file_name
 
-[project.scripts]
-{project_name} = "{project_name}.main:main"
+            # Render file name
+            rendered_file_name = env.from_string(file_name.replace(".j2", "")).render(
+                full_context
+            )  # Remove .j2 extension before rendering name
+            if ".gitignore" in file_name:
+                logging.debug(
+                    f"Rendered file name for {file_name} is: {rendered_file_name}"
+                )
 
-[tool.pytest.ini_options]
-addopts = "-ra -q --cov={project_name}"
-testpaths = ["tests"]
+            target_file_path = current_target_dir_path / rendered_file_name
+            if ".gitignore" in file_name or ".gitignore" in str(target_file_path):
+                logging.debug(
+                    f"Target file path for {file_name} is: {target_file_path}"
+                )
 
-[tool.black]
-line-length = 88
-target-version = ["py38"]
+            # Ensure parent directory of the target file exists
+            target_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-[tool.ruff]
-line-length = 88
-target-version = "py38"
-''')
+            # print(f"Processing template file: {template_file_path} -> {target_file_path}")
+            logging.debug(
+                f"Processing template file: {template_file_path} -> {target_file_path}"
+            )
 
-    # 创建 README.md
-    current_year = datetime.now().year
-    (project_path / "README.md").write_text(f"""# {project_name}
+            try:
+                # Correctly form the relative path for Jinja's get_template
+                relative_template_file_path_for_jinja = template_file_path.relative_to(
+                    specific_template_dir
+                )
+                if ".gitignore" in str(target_file_path):
+                    logging.debug(
+                        f"Attempting to get template for: {relative_template_file_path_for_jinja}"
+                    )
+                template = env.get_template(str(relative_template_file_path_for_jinja))
+                rendered_content = template.render(full_context)
 
-## 描述
-这是一个使用 create-uv-project 创建的 Python 项目。
+                if ".gitignore" in str(target_file_path):
+                    logging.debug(f"Attempting to write to: {target_file_path}")
+                with open(target_file_path, "w", encoding="utf-8") as f:
+                    f.write(rendered_content)
+                # print(f"Generated file: {target_file_path}")
+                logging.info(f"Generated file: {target_file_path}")
+                if ".gitignore" in str(target_file_path):
+                    logging.debug(f"Successfully wrote file: {target_file_path}")
+            except Exception as e:
+                # print(f"Error rendering or writing file {template_file_path}: {e}")
+                logging.error(
+                    f"Error rendering or writing file {template_file_path}: {e}"
+                )
+                if ".gitignore" in str(template_file_path) or ".gitignore" in str(
+                    target_file_path
+                ):
+                    logging.debug(
+                        f"ERROR SPECIFIC TO GITIGNORE: {e} while processing {template_file_path}"
+                    )
+                # Optionally copy if not a template, or handle error
+                # For now, we'll just print an error and continue
+                # if not file_name.endswith(".j2"):
+                #     shutil.copy2(template_file_path, target_file_path)
+                #     print(f"Copied (non-template): {target_file_path}")
 
-## 功能
-- 待添加
-
-## 安装
-
-### 开发环境设置
-```bash
-# 创建并激活虚拟环境
-uv venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-
-# 安装开发和测试依赖
-uv pip install -e ".[test,dev]"
-```
-
-### 可用的开发工具
-- **测试工具**
-  - `pytest`: 运行单元测试
-  - `pytest-cov`: 生成测试覆盖率报告
-
-- **代码质量工具**
-  - `black`: Python 代码格式化
-  - `ruff`: 快速的 Python 代码检查器
-
-## 开发指南
-
-### 运行测试
-```bash
-# 运行所有测试
-uv run pytest
-
-# 运行测试并生成覆盖率报告
-uv run pytest --cov
-```
-
-### 代码质量检查
-```bash
-# 格式化代码
-uv run black .
-
-# 运行代码检查
-uv run ruff check .
-```
-
-## 使用
-```bash
-# 运行项目
-{project_name}
-```
-
-## 安装测试环境
-```bash
-uv pip install -e ".[test,dev]"
-```
-安装已经完成了！让我解释一下命令的各个部分：
--e 表示以可编辑模式安装当前项目
-".[test,dev]" 中的：
-. 表示当前目录（项目根目录）
-[test,dev] 指定要安装的可选依赖组
-现在您已经安装了所有的开发和测试工具：
-测试工具：pytest 和 pytest-cov
-开发工具：black（代码格式化工具）和 ruff（代码检查工具）
-您可以使用这些工具来：
-运行测试：uv run pytest
-格式化代码：uv run black .
-运行代码检查：uv run ruff .
-
-
-
-## 许可证
-MIT License
-
-Copyright (c) {current_year} Your Name
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-""")
-
-    # 创建 .gitignore
-    (project_path / ".gitignore").write_text("""# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-.coverage
-coverage.xml
-htmlcov/
-
-# Virtual Environment
-.env
-.venv
-env/
-venv/
-ENV/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-""")
+    logging.info(
+        f"Project '{project_name}' created successfully at '{target_project_path}'!"
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="创建 Python 项目结构")
-    parser.add_argument("project_name", help="项目名称")
-    parser.add_argument("--path", default=".", help="项目创建路径，默认为当前目录")
+    # Basic logging configuration
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    parser = argparse.ArgumentParser(
+        description="Create a new Python project using UV and pre-defined templates."
+    )
+    parser.add_argument("project_name", help="The name of the new project.")
+    parser.add_argument(
+        "-t",
+        "--template",
+        default="basic",
+        help="The project template to use (e.g., basic, fastapi, cli). Default: basic",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        default=".",
+        help="The directory where the project will be created. Default: current directory",
+    )
+    # Add more arguments for context if needed, e.g., author_name, author_email
+    parser.add_argument(
+        "--author-name", default="Your Name", help="Author's name for pyproject.toml"
+    )
+    parser.add_argument(
+        "--author-email",
+        default="you@example.com",
+        help="Author's email for pyproject.toml",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output (DEBUG level logging)",
+    )
 
     args = parser.parse_args()
 
-    # 验证项目名称
-    if not args.project_name.isidentifier():
-        print(f"错误: '{args.project_name}' 不是有效的 Python 包名称", file=sys.stderr)
-        sys.exit(1)
+    # Reconfigure logging level if verbose is set
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.debug("Verbose mode enabled. DEBUG level logging active.")
 
-    # 创建项目路径
-    project_path = Path(args.path) / args.project_name
-    if project_path.exists():
-        print(f"错误: 目录 '{project_path}' 已存在", file=sys.stderr)
-        sys.exit(1)
+    user_context = {
+        "author_name": args.author_name,
+        "author_email": args.author_email,
+        # Add any other variables you want to pass to templates
+    }
 
-    try:
-        # 创建项目结构
-        create_directory_structure(args.project_name, project_path)
-        print(f"✨ 项目 '{args.project_name}' 创建成功！")
-        print("\n要开始使用项目，请执行以下命令：")
-        print(f"cd {args.project_name}")
-        print("uv venv")
-        print("source .venv/bin/activate  # Windows: .venv\\Scripts\\activate")
-        print("uv sync  # 安装开发和测试依赖")
-        print(f"{args.project_name}  # 运行项目")
-    except Exception as e:
-        print(f"错误: 创建项目时发生错误: {e}", file=sys.stderr)
-        sys.exit(1)
+    generate_project_from_template(
+        template_name=args.template,
+        project_name=args.project_name,
+        output_dir=args.output_dir,
+        context=user_context,
+    )
 
 
 if __name__ == "__main__":
