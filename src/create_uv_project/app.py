@@ -186,7 +186,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Create a new Python project using UV and pre-defined templates."
     )
-    parser.add_argument("project_name", help="The name of the new project.")
+    parser.add_argument("project_name", nargs="?", help="The name of the new project.")
     parser.add_argument(
         "-t",
         "--template",
@@ -209,10 +209,14 @@ def main():
         help="Author's email for pyproject.toml",
     )
     parser.add_argument(
-        "-v",
         "--verbose",
         action="store_true",
         help="Enable verbose output (DEBUG level logging)",
+    )
+    parser.add_argument(
+        "-v", "--version",
+        action="version",
+        version="%(prog)s 0.1.0"
     )
 
     args = parser.parse_args()
@@ -221,6 +225,10 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
         logging.debug("Verbose mode enabled. DEBUG level logging active.")
+
+    if not args.project_name:
+        parser.print_help()
+        return
 
     user_context = {
         "author_name": args.author_name,
