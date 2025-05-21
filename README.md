@@ -1,14 +1,16 @@
-# create-uv-project
-
 <div align="center">
 
-![UV Project Creator](https://raw.githubusercontent.com/yourusername/create-uv-project/main/assets/logo.png)
+<img src="logo.jpeg" alt="create-uv-project logo" width="256"/>
+
+<br/>
 
 [![PyPI version](https://badge.fury.io/py/create-uv-project.svg)](https://badge.fury.io/py/create-uv-project)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/pypi/pyversions/create-uv-project)](https://pypi.org/project/create-uv-project/)
 
 </div>
+
+# create-uv-project
 
 ---
 
@@ -35,7 +37,7 @@ pip install create-uv-project
 或者使用 UV（推荐）：
 
 ```bash
-uv pip install create-uv-project
+uv tool install create-uv-project
 ```
 
 ### 使用方法
