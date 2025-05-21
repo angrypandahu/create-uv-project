@@ -4,6 +4,8 @@ import os
 import pathlib
 from jinja2 import Environment, FileSystemLoader
 import logging
+import importlib.resources
+from pathlib import Path
 
 
 def generate_project_from_template(
@@ -30,19 +32,19 @@ def generate_project_from_template(
     # Correctly locate the templates directory relative to this file
     # Assuming app.py is in src/create_uv_project/app.py
     # and templates are in /templates/
-    script_dir = pathlib.Path(__file__).parent.parent.parent
-    template_root_dir = script_dir / "templates"
-    specific_template_dir = template_root_dir / template_name
+    with importlib.resources.as_file(
+        importlib.resources.files("create_uv_project") / "templates" / template_name
+    ) as specific_template_dir:
+        if not specific_template_dir.is_dir():
+            logging.error(
+                f"Template '{template_name}' not found at '{specific_template_dir}'"
+            )
+            return
 
-    if not specific_template_dir.is_dir():
-        logging.error(
-            f"Template '{template_name}' not found at '{specific_template_dir}'"
+        env = Environment(
+            loader=FileSystemLoader(str(specific_template_dir)),
+            keep_trailing_newline=True,
         )
-        return
-
-    env = Environment(
-        loader=FileSystemLoader(str(specific_template_dir)), keep_trailing_newline=True
-    )
 
     target_project_path = pathlib.Path(output_dir) / project_slug
 

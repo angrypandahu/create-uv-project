@@ -7,13 +7,14 @@ description = "A modern Python project scaffolder powered by UV."
 name = "create-uv-project"
 readme = "README.md"
 requires-python = ">=3.12"
-version = "0.1.0"
+version = "0.1.1"
 
 [tool.uv]
 package = true
 
 [project.scripts]
 create-uv-project = "create_uv_project.app:main"
+cup = "create_uv_project.app:main"
 
 [build-system]
 build-backend = "hatchling.build"
